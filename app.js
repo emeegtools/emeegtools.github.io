@@ -3,7 +3,7 @@
 (function () {
   'use strict';
   const CFG = window.EMEEG_CONFIG || {};
-  const BASE = String(CFG.supabaseUrl || '').trim().replace(/\/+$/, '');
+  const BASE = String(CFG.supabaseUrl || '').trim().replace(/\/+$/, '').replace(/\/rest\/v1$/i, '');
   const KEY = CFG.supabaseKey || '';
   const TOKEN_KEY = 'emeeg_online_token';
 
@@ -325,7 +325,7 @@
             <tr class="total"><td></td><td>Total</td><td class="n">${num(d.totalCashOut)}</td></tr></tbody></table>` : '<div class="empty">No Cash Out this day</div>'}
         </div>
       </div>
-      <p class="small muted mt">Expenses typed by hand, the cash count and remarks stay in EMEEG Tools at the store.</p>`;
+      <p class="small muted mt">Expenses typed by hand, the cash count and remarks stay in the End of Sales app at the store.</p>`;
   }
 
   function printDay(kind) {
@@ -394,93 +394,86 @@
       <tr class="total"><td>Total</td><td class="n">${num(tS)}</td><td class="n">${num(tC)}</td><td class="n">${num(tS - tC)}</td></tr></tbody></table>`, 'a4');
   }
 
-  // ---------------------------------------------------------------- Kumpra List
-  const kum = { items: [], products: null, cats: [] };
+  // ---------------------------------------------------------------- Kumpra List (open lists of the Kumpra List app; tick only)
+  const kum = { items: [], cats: [] };
   pages.kumpra = (main) => {
     kum.cats = [...((me.store && me.store.categories) || [])];
-    if (!kum.cats.includes('Others')) kum.cats.push('Others');
     main.innerHTML = `
       <div class="head">
-        <div><h1>Kumpra List</h1><div class="sub">Type items in any order — the printout sorts them by category</div></div>
-        <div class="actions"><button class="btn" id="kA4">Print A4</button><button class="btn dark" id="kTh">Print thermal</button></div>
+        <div><h1>Kumpra List</h1><div class="sub">Lists are made in the Kumpra List app at the store. Tick what you have bought.</div></div>
       </div>
-      <div class="card">
-        <form class="kform" id="kForm" autocomplete="off">
-          <label class="field">Listahanan (item)<input class="input" id="kName" list="kProducts" placeholder="Start typing — picks from Aronium products" enterkeyhint="done"></label>
-          <datalist id="kProducts"></datalist>
-          <label class="field">Category<select class="input" id="kCat">${kum.cats.map((c) => `<option>${esc(c)}</option>`).join('')}</select></label>
-          <button class="btn primary" type="submit" style="min-height:44px">Add</button>
-        </form>
-        <div id="kList"><div class="empty">Loading…</div></div>
-        <div class="actions mt" id="kActs"></div>
-      </div>`;
-    const name = $('#kName'), cat = $('#kCat');
-    name.addEventListener('input', () => {
-      const v = name.value.trim().toLowerCase();
-      const p = (kum.products || []).find((x) => x[0].toLowerCase() === v);
-      if (p && kum.cats.includes(p[1])) cat.value = p[1];
-    });
-    $('#kForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!name.value.trim()) return name.focus();
-      const items = await attempt(() => call('eo_kumpra_add', { p_name: name.value, p_category: cat.value }), $('#kForm'));
-      if (items) { name.value = ''; name.focus(); drawKumpra(items); }
-    });
-    $('#kA4').onclick = () => printKumpra('a4');
-    $('#kTh').onclick = () => printKumpra('thermal');
+      <div id="kLists"><div class="card empty">Loading…</div></div>
+      <p class="small muted mt">Your ticks go back to the Kumpra List app at the store within about a minute. Only open lists are shown.</p>`;
     loadKumpra();
     every(20000, loadKumpra);
-    if (!kum.products) {
-      attempt(() => call('eo_products')).then((p) => {
-        kum.products = p || [];
-        const dl = $('#kProducts');
-        if (dl) dl.innerHTML = kum.products.map((x) => `<option value="${esc(x[0])}"></option>`).join('');
-      });
-    } else {
-      $('#kProducts').innerHTML = kum.products.map((x) => `<option value="${esc(x[0])}"></option>`).join('');
-    }
   };
 
   async function loadKumpra() {
     const items = await attempt(() => call('eo_kumpra_list'));
     if (items && current === 'kumpra') drawKumpra(items);
   }
-  function grouped(items) {
+  function byCategory(items) {
     const order = [...kum.cats];
     for (const i of items) if (!order.includes(i.category)) order.push(i.category);
+    const others = order.indexOf('Others');
+    if (others >= 0) { order.splice(others, 1); order.push('Others'); }
     return order.map((c) => ({ cat: c, items: items.filter((i) => i.category === c) })).filter((g) => g.items.length);
   }
+  function byList(items) {
+    const lists = [];
+    for (const i of items) {
+      let l = lists.find((x) => x.id === i.list_id);
+      if (!l) { l = { id: i.list_id, title: i.list_title || 'Kumpra', date: i.list_date, items: [] }; lists.push(l); }
+      l.items.push(i);
+    }
+    return lists;
+  }
+  const shortTime = (iso) => iso ? new Date(iso).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   function drawKumpra(items) {
     kum.items = items;
-    const list = $('#kList');
-    if (!list) return;
-    const groups = grouped(items);
-    list.innerHTML = groups.length ? groups.map((g) => `
-      <div class="kgroup"><h3><span>${esc(g.cat)}</span><span class="muted">${g.items.filter((i) => !i.bought).length}</span></h3>
-        ${g.items.map((i) => `<div class="kitem${i.bought ? ' bought' : ''}">
-          <label><input type="checkbox" data-id="${i.id}" ${i.bought ? 'checked' : ''}><span><span class="nm">${esc(i.name)}</span><br><span class="by">${esc(i.added_by || '')}</span></span></label>
-          <button class="xbtn" data-del="${i.id}" aria-label="Remove ${esc(i.name)}">✕</button></div>`).join('')}
-      </div>`).join('') : '<div class="empty">The list is empty. Type an item above.</div>';
-    $$('input[data-id]', list).forEach((c) => { c.onchange = async () => { const r = await attempt(() => call('eo_kumpra_set', { p_id: Number(c.dataset.id), p_bought: c.checked })); if (r) drawKumpra(r); }; });
-    $$('[data-del]', list).forEach((b) => { b.onclick = async () => { const r = await attempt(() => call('eo_kumpra_remove', { p_id: Number(b.dataset.del) })); if (r) drawKumpra(r); }; });
-    const bought = items.filter((i) => i.bought).length;
-    $('#kActs').innerHTML = items.length ? `
-      ${bought ? `<button class="btn" id="kClrB">Remove ${bought} bought item(s)</button>` : ''}
-      <button class="btn danger" id="kClr">Clear whole list</button>` : '';
-    const cb = $('#kClrB'), ca = $('#kClr');
-    if (cb) cb.onclick = async () => { const r = await attempt(() => call('eo_kumpra_clear', { p_only_bought: true })); if (r) drawKumpra(r); };
-    if (ca) ca.onclick = async () => { if (!confirm('Clear the WHOLE Kumpra list?')) return; const r = await attempt(() => call('eo_kumpra_clear', { p_only_bought: false })); if (r) drawKumpra(r); };
+    const box = $('#kLists');
+    if (!box) return;
+    const lists = byList(items);
+    if (!lists.length) { box.innerHTML = '<div class="card empty">No open Kumpra list.<br>Make a list in the Kumpra List app at the store.</div>'; return; }
+    box.innerHTML = lists.map((l) => {
+      const left = l.items.filter((i) => !i.bought).length;
+      return `<div class="card klist">
+        <div class="klist-head">
+          <div><h2>${esc(l.title)}</h2><div class="small muted">${l.date ? esc(niceDate(String(l.date).slice(0, 10))) : ''}</div></div>
+          <div class="actions"><button class="btn" data-pa4="${l.id}">Print A4</button><button class="btn dark" data-pth="${l.id}">Print thermal</button></div>
+        </div>
+        <div class="kbar"><b>${left}</b> to buy · <span class="muted">${l.items.length - left} bought</span>
+          <div class="kprog"><span style="width:${Math.round((l.items.length - left) * 100 / l.items.length)}%"></span></div></div>
+        ${byCategory(l.items).map((g) => `
+          <div class="kgroup"><h3><span>${esc(g.cat)}</span><span class="muted">${g.items.filter((i) => !i.bought).length} left</span></h3>
+            ${g.items.map((i) => `<div class="kitem${i.bought ? ' bought' : ''}">
+              <label><input type="checkbox" data-id="${i.id}" ${i.bought ? 'checked' : ''}><span><span class="nm">${esc(i.name)}</span>
+              ${i.bought ? `<br><span class="by">✓ ${esc(i.bought_by || '')}${i.bought_at ? ' · ' + esc(shortTime(i.bought_at)) : ''}</span>` : ''}</span></label></div>`).join('')}
+          </div>`).join('')}
+      </div>`;
+    }).join('');
+    $$('input[data-id]', box).forEach((c) => {
+      c.onchange = async () => {
+        c.closest('.kitem').classList.toggle('bought', c.checked);
+        const r = await attempt(() => call('eo_kumpra_set', { p_id: Number(c.dataset.id), p_bought: c.checked }));
+        if (r) drawKumpra(r); else c.checked = !c.checked;
+      };
+    });
+    $$('[data-pa4]', box).forEach((b) => { b.onclick = () => printKumpra(Number(b.dataset.pa4), 'a4'); });
+    $$('[data-pth]', box).forEach((b) => { b.onclick = () => printKumpra(Number(b.dataset.pth), 'thermal'); });
   }
-  function printKumpra(kind) {
-    const items = kum.items.filter((i) => !i.bought);
-    if (!items.length) return toast('Nothing to buy on the list', true);
-    const groups = grouped(items), name = (me.store && me.store.name) || 'EMEEG';
+  function printKumpra(listId, kind) {
+    const l = byList(kum.items).find((x) => x.id === listId);
+    const items = l ? l.items.filter((i) => !i.bought) : [];
+    if (!items.length) return toast('Nothing left to buy on this list', true);
+    const groups = byCategory(items), name = (me.store && me.store.name) || 'EMEEG';
+    const when = l.date ? niceDate(String(l.date).slice(0, 10)) : niceDate(today());
     if (kind === 'thermal') {
-      printHtml(`<div class="c b">${esc(name)}</div><div class="c b">KUMPRA LIST</div><div class="c">${esc(niceDate(today()))}</div><hr>
-        ${groups.map((g) => `<div class="b" style="margin-top:1.5mm">[${esc(g.cat)}]</div>${g.items.map((i) => `<div>[ ] ${esc(i.name)}</div>`).join('')}`).join('')}<hr>
+      printHtml(`<div class="c b">${esc(name)}</div><div class="c b">${esc(l.title)}</div><div class="c">${esc(when)}</div><hr>
+        ${groups.map((g) => `<div class="b" style="margin-top:1.5mm">${esc(g.cat)}:</div>${g.items.map((i) => `<div>[ ] ${esc(i.name)}</div>`).join('')}`).join('')}<hr>
         <div class="c">${items.length} item(s)</div>`, 'thermal');
     } else {
-      printHtml(`<h1>${esc(name)} — Kumpra List</h1><div class="sub">${esc(niceDate(today()))} · ${items.length} item(s)</div><div class="cols">
+      printHtml(`<h1>${esc(l.title)}</h1><div class="sub">${esc(name)} · ${esc(when)} · ${items.length} item(s)</div><div class="cols">
         ${groups.map((g) => `<div class="grp"><h2>${esc(g.cat)}</h2>${g.items.map((i) => `<div class="ki"><span class="box"></span>${esc(i.name)}</div>`).join('')}</div>`).join('')}</div>`, 'a4');
     }
   }

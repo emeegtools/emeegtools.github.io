@@ -93,6 +93,12 @@ table.t tr.click:hover{background:var(--blue-bg)}
 .chip.ok{background:var(--green-bg);color:var(--green)}
 
 /* kumpra */
+.klist{margin-bottom:14px}
+.klist-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.klist-head h2{margin:0}
+.kbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px}
+.kprog{flex:1 1 160px;height:8px;background:var(--soft);border-radius:99px;overflow:hidden}
+.kprog span{display:block;height:100%;background:var(--green);transition:width .3s}
 .kform{display:grid;grid-template-columns:1fr 170px auto;gap:10px;align-items:end}
 @media (max-width:560px){.kform{grid-template-columns:1fr 1fr}.kform .field:first-child{grid-column:1/-1}}
 .kgroup{margin-top:14px}
