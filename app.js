@@ -81,21 +81,6 @@
   }
   const late = (iso) => !iso || Date.now() - new Date(iso) > 15 * 60 * 1000;
 
-  // Print: fill the hidden print area, set the page size, print, clean up
-  function printHtml(html, kind) {
-    const area = $('#print');
-    area.innerHTML = `<div class="${kind === 'thermal' ? 'pth' : 'pa4'}">${html}</div>`;
-    let st = $('#pageStyle');
-    if (!st) { st = document.createElement('style'); st.id = 'pageStyle'; document.head.appendChild(st); }
-    st.textContent = kind === 'thermal'
-      ? '@media print{@page{size:80mm auto;margin:0}.pth{width:72mm;padding:2mm 3mm}}'
-      : '@media print{@page{size:A4;margin:12mm}}';
-    document.body.classList.add('printing');
-    const done = () => { document.body.classList.remove('printing'); area.innerHTML = ''; window.removeEventListener('afterprint', done); };
-    window.addEventListener('afterprint', done);
-    setTimeout(() => window.print(), 50);
-  }
-
   // ---------------------------------------------------------------- login / logout
   function showLogin() {
     $('#app').hidden = true;
@@ -255,27 +240,22 @@
           <input class="input" type="date" id="eDate" value="${esc(eos.day)}" max="${today()}">
           <button class="btn icon" id="eNext" aria-label="Next day">›</button>
           <button class="btn" id="eToday">Today</button>
-        </div>
-        <div class="actions" style="margin-left:auto"><button class="btn" id="eA4">Print A4</button><button class="btn" id="eTh">Print thermal</button></div>`;
+        </div>`;
       $('#eDate').onchange = (e) => { if (e.target.value) { eos.day = e.target.value; loadDay(); } };
       $('#ePrev').onclick = () => { eos.day = addDays(eos.day, -1); $('#eDate').value = eos.day; loadDay(); };
       $('#eNext').onclick = () => { if (eos.day >= today()) return; eos.day = addDays(eos.day, 1); $('#eDate').value = eos.day; loadDay(); };
       $('#eToday').onclick = () => { eos.day = today(); $('#eDate').value = eos.day; loadDay(); };
-      $('#eA4').onclick = () => printDay('a4');
-      $('#eTh').onclick = () => printDay('thermal');
       loadDay();
     } else {
       bar.innerHTML = `<div class="datebar">
           <button class="btn icon" id="mPrev" aria-label="Month before">‹</button>
           <input class="input" type="month" id="mMonth" value="${esc(eos.month)}">
           <button class="btn icon" id="mNext" aria-label="Next month">›</button>
-        </div>
-        <div class="actions" style="margin-left:auto"><button class="btn" id="mA4">Print A4</button></div>`;
+        </div>`;
       const shift = (n) => { const d = new Date(eos.month + '-15T12:00:00'); d.setMonth(d.getMonth() + n); eos.month = ymd(d).slice(0, 7); $('#mMonth').value = eos.month; loadMonth(); };
       $('#mMonth').onchange = (e) => { if (e.target.value) { eos.month = e.target.value; loadMonth(); } };
       $('#mPrev').onclick = () => shift(-1);
       $('#mNext').onclick = () => shift(1);
-      $('#mA4').onclick = () => printMonth();
       loadMonth();
     }
   }
@@ -303,7 +283,7 @@
       <div class="grid kpis">
         <div class="card kpi"><div class="l">Total sales</div><div class="v">${peso(d.totalSales)}</div><div class="s">${d.users.length} user(s)</div></div>
         <div class="card kpi"><div class="l">Cash Out</div><div class="v">${peso(d.totalCashOut)}</div><div class="s">${d.cashOuts.length} entries</div></div>
-        <div class="card kpi"><div class="l">Sales − Cash Out</div><div class="v ${d.net < 0 ? 'neg' : ''}">${peso(d.net)}</div><div class="s">Updated ${esc(ago(r.updated_at))}</div></div>
+        <div class="card kpi"><div class="l">Grand Total</div><div class="v ${d.net < 0 ? 'neg' : ''}">${peso(d.net)}</div><div class="s">Updated ${esc(ago(r.updated_at))}</div></div>
       </div>
       <h2 style="margin:20px 0 10px;font-size:17px">Each user</h2>
       <div class="grid users">
@@ -328,32 +308,6 @@
       <p class="small muted mt">Expenses typed by hand, the cash count and remarks stay in the End of Sales app at the store.</p>`;
   }
 
-  function printDay(kind) {
-    const r = eos.data;
-    if (!r || !r.data) return toast('No report to print for this day', true);
-    const d = r.data, cats = d.categories, name = (me.store && me.store.name) || 'EMEEG';
-    if (kind === 'thermal') {
-      const lr = (a, b, bold) => `<div class="lr${bold ? ' b' : ''}"><span>${esc(a)}</span><span>${esc(b)}</span></div>`;
-      printHtml(`<div class="c b">${esc(name)}</div><div class="c b">END OF THE SALES</div><div class="c">${esc(niceDate(eos.day))}</div><hr>
-        ${d.users.map((u) => `<div class="b">${esc(u.name)}</div>${cats.filter((c) => u.categories[c]).map((c) => lr(c, num(u.categories[c]))).join('')}${lr('TOTAL', num(u.total), true)}<hr>`).join('')}
-        <div class="b">ALL USERS</div>${cats.filter((c) => d.byCategory[c]).map((c) => lr(c, num(d.byCategory[c]))).join('')}${lr('TOTAL SALES', num(d.totalSales), true)}<hr>
-        ${d.cashOuts.length ? `<div class="b">CASH OUT</div>${d.cashOuts.map((c) => lr(c.description || '-', num(c.amount))).join('')}${lr('TOTAL CASH OUT', num(d.totalCashOut), true)}<hr>` : ''}
-        ${lr('SALES - CASH OUT', num(d.net), true)}<hr><div class="c">Printed ${esc(new Date().toLocaleString('en-PH'))}</div>`, 'thermal');
-    } else {
-      printHtml(`<h1>${esc(name)} — End of the Sales</h1><div class="sub">${esc(niceDate(eos.day))} · from Aronium</div>
-        <h2>Sales by category</h2>
-        <table><thead><tr><th>Category</th>${d.users.map((u) => `<th class="n">${esc(u.name)}</th>`).join('')}<th class="n">Total</th></tr></thead><tbody>
-        ${cats.map((c) => `<tr><td>${esc(c)}</td>${d.users.map((u) => `<td class="n">${u.categories[c] ? num(u.categories[c]) : ''}</td>`).join('')}<td class="n">${num(d.byCategory[c])}</td></tr>`).join('')}
-        <tr class="total"><td>Total</td>${d.users.map((u) => `<td class="n">${num(u.total)}</td>`).join('')}<td class="n">${num(d.totalSales)}</td></tr></tbody></table>
-        <h2>Cash Out</h2>
-        ${d.cashOuts.length ? `<table><tbody>${d.cashOuts.map((c) => `<tr><td style="width:15mm">${esc(c.time)}</td><td>${esc(c.description)}</td><td class="n">${num(c.amount)}</td></tr>`).join('')}
-        <tr class="total"><td></td><td>Total Cash Out</td><td class="n">${num(d.totalCashOut)}</td></tr></tbody></table>` : '<p>None</p>'}
-        <h2>Summary</h2>
-        <table><tbody><tr><td>Total sales</td><td class="n">${num(d.totalSales)}</td></tr><tr><td>Total Cash Out</td><td class="n">${num(d.totalCashOut)}</td></tr>
-        <tr class="total"><td>Sales − Cash Out</td><td class="n">${num(d.net)}</td></tr></tbody></table>`, 'a4');
-    }
-  }
-
   async function loadMonth() {
     const body = $('#eBody');
     body.innerHTML = '<div class="card empty">Loading…</div>';
@@ -369,11 +323,11 @@
       <div class="grid kpis">
         <div class="card kpi"><div class="l">Sales in ${esc(monthName(eos.month))}</div><div class="v">${peso(tS)}</div><div class="s">${rows.length} day(s) with sales</div></div>
         <div class="card kpi"><div class="l">Cash Out</div><div class="v">${peso(tC)}</div></div>
-        <div class="card kpi"><div class="l">Sales − Cash Out</div><div class="v">${peso(tS - tC)}</div><div class="s">Average sales/day ${peso(tS / rows.length)}</div></div>
+        <div class="card kpi"><div class="l">Grand Total</div><div class="v">${peso(tS - tC)}</div><div class="s">Average sales/day ${peso(tS / rows.length)}</div></div>
       </div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:14px">
         <div class="card"><h2>Each day <span class="small muted">(tap a day to open it)</span></h2>
-          <table class="t"><thead><tr><th>Day</th><th class="n">Sales</th><th class="n">Cash Out</th><th class="n">Net</th></tr></thead><tbody>
+          <table class="t"><thead><tr><th>Day</th><th class="n">Sales</th><th class="n">Cash Out</th><th class="n">Grand Total</th></tr></thead><tbody>
           ${rows.map((r) => `<tr class="click" data-day="${esc(r.day)}"><td>${esc(new Date(r.day + 'T12:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }))}</td>
             <td class="n">${num(r.total_sales)}</td><td class="n">${num(r.total_cash_out)}</td><td class="n">${num(r.total_sales - r.total_cash_out)}</td></tr>`).join('')}
           <tr class="total"><td>Total</td><td class="n">${num(tS)}</td><td class="n">${num(tC)}</td><td class="n">${num(tS - tC)}</td></tr></tbody></table></div>
@@ -382,16 +336,6 @@
           <tr class="total"><td>Total</td><td class="n">${num(tS)}</td></tr></tbody></table></div>
       </div>`;
     $$('tr[data-day]', body).forEach((tr) => { tr.onclick = () => { eos.mode = 'day'; eos.day = tr.dataset.day; drawEos(); }; });
-  }
-
-  function printMonth() {
-    const rows = eos.monthRows;
-    if (!rows || !rows.length) return toast('No sales to print for this month', true);
-    const tS = rows.reduce((a, r) => a + Number(r.total_sales), 0), tC = rows.reduce((a, r) => a + Number(r.total_cash_out), 0);
-    printHtml(`<h1>${esc((me.store && me.store.name) || 'EMEEG')} — Sales for ${esc(monthName(eos.month))}</h1><div class="sub">From Aronium</div>
-      <table><thead><tr><th>Day</th><th class="n">Sales</th><th class="n">Cash Out</th><th class="n">Sales − Cash Out</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${esc(niceDate(r.day))}</td><td class="n">${num(r.total_sales)}</td><td class="n">${num(r.total_cash_out)}</td><td class="n">${num(r.total_sales - r.total_cash_out)}</td></tr>`).join('')}
-      <tr class="total"><td>Total</td><td class="n">${num(tS)}</td><td class="n">${num(tC)}</td><td class="n">${num(tS - tC)}</td></tr></tbody></table>`, 'a4');
   }
 
   // ---------------------------------------------------------------- Kumpra List (open lists of the Kumpra List app; tick only)
@@ -440,7 +384,6 @@
       return `<div class="card klist">
         <div class="klist-head">
           <div><h2>${esc(l.title)}</h2><div class="small muted">${l.date ? esc(niceDate(String(l.date).slice(0, 10))) : ''}</div></div>
-          <div class="actions"><button class="btn" data-pa4="${l.id}">Print A4</button><button class="btn dark" data-pth="${l.id}">Print thermal</button></div>
         </div>
         <div class="kbar"><b>${left}</b> to buy · <span class="muted">${l.items.length - left} bought</span>
           <div class="kprog"><span style="width:${Math.round((l.items.length - left) * 100 / l.items.length)}%"></span></div></div>
@@ -459,25 +402,7 @@
         if (r) drawKumpra(r); else c.checked = !c.checked;
       };
     });
-    $$('[data-pa4]', box).forEach((b) => { b.onclick = () => printKumpra(Number(b.dataset.pa4), 'a4'); });
-    $$('[data-pth]', box).forEach((b) => { b.onclick = () => printKumpra(Number(b.dataset.pth), 'thermal'); });
   }
-  function printKumpra(listId, kind) {
-    const l = byList(kum.items).find((x) => x.id === listId);
-    const items = l ? l.items.filter((i) => !i.bought) : [];
-    if (!items.length) return toast('Nothing left to buy on this list', true);
-    const groups = byCategory(items), name = (me.store && me.store.name) || 'EMEEG';
-    const when = l.date ? niceDate(String(l.date).slice(0, 10)) : niceDate(today());
-    if (kind === 'thermal') {
-      printHtml(`<div class="c b">${esc(name)}</div><div class="c b">${esc(l.title)}</div><div class="c">${esc(when)}</div><hr>
-        ${groups.map((g) => `<div class="b" style="margin-top:1.5mm">${esc(g.cat)}:</div>${g.items.map((i) => `<div>[ ] ${esc(i.name)}</div>`).join('')}`).join('')}<hr>
-        <div class="c">${items.length} item(s)</div>`, 'thermal');
-    } else {
-      printHtml(`<h1>${esc(l.title)}</h1><div class="sub">${esc(name)} · ${esc(when)} · ${items.length} item(s)</div><div class="cols">
-        ${groups.map((g) => `<div class="grp"><h2>${esc(g.cat)}</h2>${g.items.map((i) => `<div class="ki"><span class="box"></span>${esc(i.name)}</div>`).join('')}</div>`).join('')}</div>`, 'a4');
-    }
-  }
-
   // ---------------------------------------------------------------- Accounts (admin)
   let accounts = [];
   pages.accounts = async (main) => {
